@@ -1,0 +1,13 @@
+{
+  "name": "Quotes",
+  "primaryKeys": ["symbol"],
+  "columns": [
+    { "name": "symbol",     "type": "string" },
+    { "name": "bid",        "type": "double" },
+    { "name": "ask",        "type": "double" },
+    { "name": "bidSize",    "type": "int" },
+    { "name": "askSize",    "type": "int" },
+    { "name": "exchange",   "type": "string" },
+    { "name": "timestamp",  "type": "long" }
+  ]
+}

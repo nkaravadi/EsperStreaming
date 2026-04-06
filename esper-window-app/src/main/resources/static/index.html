@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Esper Window Viewer</title>
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@31.0.3/dist/ag-grid-community.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.0.3/styles/ag-grid.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.0.3/styles/ag-theme-balham.css">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #eee; }
+        .header { background: #16213e; padding: 12px 24px; display: flex; align-items: center; gap: 16px; border-bottom: 1px solid #0f3460; }
+        .header h1 { font-size: 18px; color: #e94560; }
+        .main { display: flex; height: calc(100vh - 49px); }
+        .sidebar { width: 320px; min-width: 320px; background: #16213e; border-right: 1px solid #0f3460; padding: 16px; overflow-y: auto; }
+        .content { flex: 1; display: flex; flex-direction: column; padding: 16px; }
+        .section { margin-bottom: 16px; }
+        .section h3 { font-size: 13px; text-transform: uppercase; color: #888; margin-bottom: 8px; letter-spacing: 1px; }
+        label { display: block; font-size: 12px; color: #aaa; margin-bottom: 4px; }
+        select, input[type="text"], input[type="number"] { width: 100%; padding: 8px; border: 1px solid #0f3460; border-radius: 4px; background: #1a1a2e; color: #eee; font-size: 13px; margin-bottom: 8px; }
+        select:focus, input:focus { outline: none; border-color: #e94560; }
+        .btn { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 500; transition: background 0.2s; }
+        .btn-primary { background: #e94560; color: white; }
+        .btn-primary:hover { background: #c73a52; }
+        .btn-success { background: #27ae60; color: white; }
+        .btn-success:hover { background: #219a52; }
+        .btn-danger { background: #c0392b; color: white; }
+        .btn-danger:hover { background: #a93226; }
+        .btn-sm { padding: 5px 10px; font-size: 12px; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-row { display: flex; gap: 8px; margin-bottom: 8px; }
+        .status-bar { background: #16213e; padding: 8px 16px; display: flex; gap: 24px; font-size: 12px; border-top: 1px solid #0f3460; }
+        .status-item { display: flex; align-items: center; gap: 6px; }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; }
+        .dot-green { background: #27ae60; }
+        .dot-red { background: #c0392b; }
+        .dot-yellow { background: #f39c12; }
+        .grid-container { flex: 1; width: 100%; }
+        .schema-info { font-size: 12px; color: #888; background: #0d1117; border-radius: 4px; padding: 8px; margin-bottom: 8px; max-height: 120px; overflow-y: auto; }
+        .schema-info span { display: inline-block; margin: 2px 4px; padding: 2px 6px; background: #1a1a2e; border-radius: 3px; font-family: monospace; }
+        .pk { color: #e94560; font-weight: bold; }
+        .log-panel { height: 120px; background: #0d1117; border-radius: 4px; padding: 8px; font-family: monospace; font-size: 11px; overflow-y: auto; margin-top: 8px; }
+        .log-entry { padding: 1px 0; }
+        .log-time { color: #555; }
+        .log-snapshot { color: #3498db; }
+        .log-insert { color: #27ae60; }
+        .log-update { color: #f39c12; }
+        .log-delete { color: #c0392b; }
+        .flash-insert { animation: flashGreen 0.5s ease-out; }
+        .flash-update { animation: flashYellow 0.5s ease-out; }
+        .flash-delete { animation: flashRed 0.5s ease-out; }
+        @keyframes flashGreen { from { background-color: rgba(39, 174, 96, 0.3); } to { background-color: transparent; } }
+        @keyframes flashYellow { from { background-color: rgba(243, 156, 18, 0.3); } to { background-color: transparent; } }
+        @keyframes flashRed { from { background-color: rgba(192, 57, 43, 0.3); } to { background-color: transparent; } }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Esper Window Viewer</h1>
+        <span id="connectionStatus" style="font-size:12px; color:#888;">Disconnected</span>
+    </div>
+    <div class="main">
+        <div class="sidebar">
+            <div class="section">
+                <h3>Window Selection</h3>
+                <label>Window</label>
+                <select id="windowSelect"><option value="">-- Select Window --</option></select>
+                <div id="schemaInfo" class="schema-info" style="display:none;"></div>
+            </div>
+            <div class="section">
+                <h3>Query Filter</h3>
+                <label>WHERE clause (optional)</label>
+                <input type="text" id="whereClause" placeholder="e.g. price > 100 and symbol = 'AAPL'">
+                <div class="btn-row">
+                    <button class="btn btn-primary" id="subscribeBtn" disabled>Subscribe</button>
+                    <button class="btn btn-danger" id="unsubscribeBtn" disabled>Unsubscribe</button>
+                </div>
+            </div>
+            <div class="section">
+                <h3>Event Generator</h3>
+                <label>Batch count</label>
+                <input type="number" id="genCount" value="50" min="1" max="10000">
+                <button class="btn btn-success btn-sm" id="genBatchBtn" disabled style="width:100%; margin-bottom:8px;">Generate Batch</button>
+                <label>Continuous rate (events/sec)</label>
+                <input type="number" id="genRate" value="5" min="1" max="100">
+                <div class="btn-row">
+                    <button class="btn btn-success btn-sm" id="genStartBtn" disabled>Start Continuous</button>
+                    <button class="btn btn-danger btn-sm" id="genStopBtn" disabled>Stop</button>
+                </div>
+            </div>
+            <div class="section">
+                <h3>Event Log</h3>
+                <div id="logPanel" class="log-panel"></div>
+            </div>
+        </div>
+        <div class="content">
+            <div id="gridContainer" class="ag-theme-balham-dark grid-container"></div>
+            <div class="status-bar">
+                <div class="status-item">
+                    <div class="status-dot" id="subStatusDot"></div>
+                    <span id="subStatusText">Not subscribed</span>
+                </div>
+                <div class="status-item">Rows: <span id="rowCount">0</span></div>
+                <div class="status-item">Inserts: <span id="insertCount">0</span></div>
+                <div class="status-item">Updates: <span id="updateCount">0</span></div>
+                <div class="status-item">Deletes: <span id="deleteCount">0</span></div>
+                <div class="status-item">Seq: <span id="lastSeq">0</span></div>
+            </div>
+        </div>
+    </div>
+
+<script>
+(function() {
+    // State
+    let stompClient = null;
+    let gridApi = null;
+    let currentWindow = null;
+    let currentSubscriptionId = null;
+    let primaryKeys = [];
+    let columns = [];
+    let stats = { inserts: 0, updates: 0, deletes: 0, rows: 0, seq: 0 };
+    let userSubscription = null;
+
+    // DOM refs
+    const windowSelect = document.getElementById('windowSelect');
+    const whereClause = document.getElementById('whereClause');
+    const subscribeBtn = document.getElementById('subscribeBtn');
+    const unsubscribeBtn = document.getElementById('unsubscribeBtn');
+    const genBatchBtn = document.getElementById('genBatchBtn');
+    const genStartBtn = document.getElementById('genStartBtn');
+    const genStopBtn = document.getElementById('genStopBtn');
+    const genCount = document.getElementById('genCount');
+    const genRate = document.getElementById('genRate');
+    const schemaInfo = document.getElementById('schemaInfo');
+    const logPanel = document.getElementById('logPanel');
+    const subStatusDot = document.getElementById('subStatusDot');
+    const subStatusText = document.getElementById('subStatusText');
+    const connectionStatus = document.getElementById('connectionStatus');
+
+    // Initialize
+    loadWindows();
+    connectWebSocket();
+
+    // Load available windows
+    async function loadWindows() {
+        try {
+            const resp = await fetch('/api/windows');
+            const windows = await resp.json();
+            windowSelect.innerHTML = '<option value="">-- Select Window --</option>';
+            windows.forEach(w => {
+                const opt = document.createElement('option');
+                opt.value = w.name;
+                opt.textContent = w.name;
+                windowSelect.appendChild(opt);
+            });
+        } catch (e) {
+            addLog('error', 'Failed to load windows: ' + e.message);
+        }
+    }
+
+    // Window selection change
+    windowSelect.addEventListener('change', function() {
+        const name = this.value;
+        if (!name) {
+            schemaInfo.style.display = 'none';
+            subscribeBtn.disabled = true;
+            genBatchBtn.disabled = true;
+            genStartBtn.disabled = true;
+            return;
+        }
+        fetch('/api/windows/' + name)
+            .then(r => r.json())
+            .then(config => {
+                currentWindow = config;
+                primaryKeys = config.primaryKeys;
+                columns = config.columns;
+                schemaInfo.style.display = 'block';
+                schemaInfo.innerHTML = columns.map(c =>
+                    '<span class="' + (primaryKeys.includes(c.name) ? 'pk' : '') + '">' +
+                    c.name + ':' + c.type + (primaryKeys.includes(c.name) ? ' (PK)' : '') + '</span>'
+                ).join(' ');
+                subscribeBtn.disabled = !stompClient;
+                genBatchBtn.disabled = false;
+                genStartBtn.disabled = false;
+                initGrid(config);
+            });
+    });
+
+    // Initialize AG-Grid
+    function initGrid(config) {
+        const container = document.getElementById('gridContainer');
+        container.innerHTML = '';
+
+        const columnDefs = config.columns.map(c => ({
+            field: c.name,
+            headerName: c.name,
+            sortable: true,
+            filter: true,
+            resizable: true,
+            width: c.type === 'string' ? 120 : 100,
+            cellStyle: params => {
+                if (params.data && params.data._flashType) {
+                    return null; // handled by row class
+                }
+                return null;
+            }
+        }));
+
+        const gridOptions = {
+            columnDefs: columnDefs,
+            defaultColDef: { sortable: true, filter: true, resizable: true },
+            getRowId: params => primaryKeys.map(pk => params.data[pk]).join('|'),
+            animateRows: true,
+            rowSelection: 'single',
+            getRowClass: params => {
+                if (params.data && params.data._flash) {
+                    const cls = 'flash-' + params.data._flash;
+                    setTimeout(() => {
+                        params.data._flash = null;
+                        gridApi.applyTransaction({ update: [params.data] });
+                    }, 600);
+                    return cls;
+                }
+                return null;
+            }
+        };
+
+        gridApi = agGrid.createGrid(container, gridOptions);
+        resetStats();
+    }
+
+    // WebSocket connection
+    function connectWebSocket() {
+        const socket = new SockJS('/ws');
+        stompClient = Stomp.over(socket);
+        stompClient.debug = null; // suppress debug logging
+
+        stompClient.connect({}, function(frame) {
+            connectionStatus.textContent = 'Connected';
+            connectionStatus.style.color = '#27ae60';
+            if (currentWindow) subscribeBtn.disabled = false;
+
+            // Subscribe to user queue for data
+            userSubscription = stompClient.subscribe('/user/queue/data', function(message) {
+                const msg = JSON.parse(message.body);
+                handleDataMessage(msg);
+            });
+
+            addLog('info', 'WebSocket connected');
+        }, function(error) {
+            connectionStatus.textContent = 'Disconnected';
+            connectionStatus.style.color = '#c0392b';
+            addLog('error', 'WebSocket error: ' + error);
+            // Reconnect after delay
+            setTimeout(connectWebSocket, 3000);
+        });
+    }
+
+    // Handle incoming data messages
+    function handleDataMessage(msg) {
+        stats.seq = msg.seq;
+        document.getElementById('lastSeq').textContent = msg.seq;
+
+        switch (msg.type) {
+            case 'snapshot':
+                if (gridApi && msg.data) {
+                    gridApi.applyTransaction({ add: [msg.data] });
+                    stats.rows++;
+                    stats.inserts++;
+                }
+                break;
+            case 'snapshot_complete':
+                setSubscriptionStatus('live', 'Live - receiving updates');
+                addLog('snapshot', 'Snapshot complete, ' + stats.rows + ' rows loaded');
+                break;
+            case 'insert':
+                if (gridApi && msg.data) {
+                    msg.data._flash = 'insert';
+                    gridApi.applyTransaction({ add: [msg.data] });
+                    stats.rows++;
+                    stats.inserts++;
+                    addLog('insert', 'INSERT ' + pkString(msg.data));
+                }
+                break;
+            case 'update':
+                if (gridApi && msg.data) {
+                    msg.data._flash = 'update';
+                    gridApi.applyTransaction({ update: [msg.data] });
+                    stats.updates++;
+                    addLog('update', 'UPDATE ' + pkString(msg.data));
+                }
+                break;
+            case 'delete':
+                if (gridApi && msg.data) {
+                    msg.data._flash = 'delete';
+                    // First flash then remove
+                    gridApi.applyTransaction({ update: [msg.data] });
+                    setTimeout(() => {
+                        gridApi.applyTransaction({ remove: [msg.data] });
+                        stats.rows--;
+                        updateCountDisplay();
+                    }, 300);
+                    stats.deletes++;
+                    addLog('delete', 'DELETE ' + pkString(msg.data));
+                }
+                break;
+            case 'error':
+                addLog('error', 'Error: ' + (msg.data ? msg.data.error : 'unknown'));
+                break;
+        }
+        updateCountDisplay();
+    }
+
+    function pkString(data) {
+        return primaryKeys.map(pk => pk + '=' + data[pk]).join(', ');
+    }
+
+    function updateCountDisplay() {
+        document.getElementById('rowCount').textContent = stats.rows;
+        document.getElementById('insertCount').textContent = stats.inserts;
+        document.getElementById('updateCount').textContent = stats.updates;
+        document.getElementById('deleteCount').textContent = stats.deletes;
+    }
+
+    function resetStats() {
+        stats = { inserts: 0, updates: 0, deletes: 0, rows: 0, seq: 0 };
+        updateCountDisplay();
+        document.getElementById('lastSeq').textContent = '0';
+    }
+
+    // Subscribe button
+    subscribeBtn.addEventListener('click', function() {
+        if (!stompClient || !currentWindow) return;
+
+        // Clear grid
+        if (gridApi) {
+            gridApi.setGridOption('rowData', []);
+        }
+        resetStats();
+        setSubscriptionStatus('loading', 'Loading snapshot...');
+
+        const request = {
+            windowName: currentWindow.name,
+            where: whereClause.value || null
+        };
+
+        stompClient.send('/app/subscribe', {}, JSON.stringify(request));
+        subscribeBtn.disabled = true;
+        unsubscribeBtn.disabled = false;
+        addLog('info', 'Subscribed to ' + currentWindow.name + (request.where ? ' WHERE ' + request.where : ''));
+    });
+
+    // Unsubscribe button
+    unsubscribeBtn.addEventListener('click', function() {
+        if (stompClient && currentSubscriptionId) {
+            stompClient.send('/app/unsubscribe', {}, JSON.stringify({ subscriptionId: currentSubscriptionId }));
+        }
+        currentSubscriptionId = null;
+        subscribeBtn.disabled = false;
+        unsubscribeBtn.disabled = true;
+        setSubscriptionStatus('off', 'Not subscribed');
+        addLog('info', 'Unsubscribed');
+    });
+
+    // Event generator buttons
+    genBatchBtn.addEventListener('click', async function() {
+        if (!currentWindow) return;
+        const count = parseInt(genCount.value) || 50;
+        try {
+            const resp = await fetch('/api/generate/' + currentWindow.name, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ count: count })
+            });
+            const result = await resp.json();
+            addLog('info', 'Generated ' + result.generated + ' events');
+        } catch (e) {
+            addLog('error', 'Generation failed: ' + e.message);
+        }
+    });
+
+    genStartBtn.addEventListener('click', async function() {
+        if (!currentWindow) return;
+        const rate = parseInt(genRate.value) || 5;
+        try {
+            await fetch('/api/generate/' + currentWindow.name + '/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ratePerSecond: rate })
+            });
+            genStartBtn.disabled = true;
+            genStopBtn.disabled = false;
+            addLog('info', 'Continuous generation started at ' + rate + '/sec');
+        } catch (e) {
+            addLog('error', 'Start failed: ' + e.message);
+        }
+    });
+
+    genStopBtn.addEventListener('click', async function() {
+        if (!currentWindow) return;
+        try {
+            await fetch('/api/generate/' + currentWindow.name + '/stop', { method: 'POST' });
+            genStartBtn.disabled = false;
+            genStopBtn.disabled = true;
+            addLog('info', 'Continuous generation stopped');
+        } catch (e) {
+            addLog('error', 'Stop failed: ' + e.message);
+        }
+    });
+
+    function setSubscriptionStatus(state, text) {
+        subStatusText.textContent = text;
+        subStatusDot.className = 'status-dot ' + (
+            state === 'live' ? 'dot-green' :
+            state === 'loading' ? 'dot-yellow' : 'dot-red'
+        );
+    }
+
+    function addLog(type, message) {
+        const entry = document.createElement('div');
+        entry.className = 'log-entry';
+        const time = new Date().toLocaleTimeString();
+        entry.innerHTML = '<span class="log-time">' + time + '</span> <span class="log-' + type + '">' + message + '</span>';
+        logPanel.appendChild(entry);
+        logPanel.scrollTop = logPanel.scrollHeight;
+        // Keep log to 200 entries
+        while (logPanel.children.length > 200) {
+            logPanel.removeChild(logPanel.firstChild);
+        }
+    }
+
+    setSubscriptionStatus('off', 'Not subscribed');
+})();
+</script>
+</body>
+</html>

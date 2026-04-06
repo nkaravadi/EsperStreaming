@@ -1,0 +1,13 @@
+{
+  "name": "Orders",
+  "primaryKeys": ["orderId"],
+  "columns": [
+    { "name": "orderId",    "type": "string" },
+    { "name": "symbol",     "type": "string" },
+    { "name": "side",       "type": "string" },
+    { "name": "quantity",   "type": "int" },
+    { "name": "price",      "type": "double" },
+    { "name": "status",     "type": "string" },
+    { "name": "timestamp",  "type": "long" }
+  ]
+}

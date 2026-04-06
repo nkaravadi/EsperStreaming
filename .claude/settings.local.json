@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mvn compile:*)",
+      "Bash(brew list:*)",
+      "Read(//Users/nkaravadi/**)",
+      "Read(//usr/local/bin/**)",
+      "Read(//opt/homebrew/bin/**)",
+      "Bash(brew install:*)",
+      "Bash(java -version)",
+      "Bash(mvn --version)",
+      "Bash(mvn spring-boot:run)",
+      "Bash(curl -s http://localhost:8080/api/windows)",
+      "Bash(jar tf:*)"
+    ]
+  }
+}
