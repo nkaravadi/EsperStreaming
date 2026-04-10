@@ -1,0 +1,25 @@
+flowchart TB
+    subgraph Server["Server (Spring Boot)"]
+        direction TB
+        subgraph ingestion["Data Ingestion"]
+            JSON["JSON Config Loader"] --> WM["Window Manager"]
+            WM --> ER["Esper Runtime (Windows)"]
+            EG["Event Generator (Random)"] --> ERouter["Event Router"]
+            ERouter --> ER
+        end
+        subgraph subman["Query / Subscription Manager"]
+            direction TB
+            Snap["Snapshot (Iterator)"] --> Merge["Ordered Merge"]
+            Listen["Listener (Updates)"] --> Merge
+            Merge --> WSSession["WebSocket Session"]
+        end
+    end
+
+    WSSession -->|"WebSocket (STOMP)"| Client
+
+    subgraph Client["Client (Browser - AG-Grid)"]
+        direction LR
+        WList["Window List Selector"]
+        QB["Query Builder (WHERE)"]
+        AG["AG-Grid (Live Data)"]
+    end

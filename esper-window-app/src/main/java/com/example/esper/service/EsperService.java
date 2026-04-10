@@ -15,7 +15,6 @@ import org.springframework.stereotype.Service;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.locks.ReentrantLock;
 
 @Service
 public class EsperService {
@@ -23,7 +22,6 @@ public class EsperService {
 
     private final EPRuntime runtime;
     private final EsperConfig esperConfig;
-    private final Map<String, ReentrantLock> windowLocks = new ConcurrentHashMap<>();
     private final Map<String, EPStatement> windowStatements = new ConcurrentHashMap<>();
 
     public EsperService(EPRuntime runtime, EsperConfig esperConfig) {
@@ -33,7 +31,6 @@ public class EsperService {
 
     public void createWindow(WindowConfig config) {
         String name = config.getName();
-        windowLocks.put(name, new ReentrantLock());
 
         StringBuilder epl = new StringBuilder();
 
@@ -47,7 +44,7 @@ public class EsperService {
         epl.append(buildCreateSchemaEPL(name + "DeleteEvent", pkCols)).append(";\n");
 
         // 2. Create named window
-        epl.append("@name('").append(name).append("-window') ");
+        epl.append("@name('").append(name).append("-window') @public ");
         epl.append("create window ").append(name).append(".win:keepall() as ").append(name).append("Event;\n");
 
         // 3. Insert into from base event
@@ -125,19 +122,22 @@ public class EsperService {
         runtime.getEventService().sendEventMap(event, eventTypeName);
     }
 
-    public ReentrantLock getWindowLock(String windowName) {
-        return windowLocks.get(windowName);
-    }
-
     public EPStatement getWindowStatement(String windowName) {
         return windowStatements.get(windowName);
     }
 
     /**
      * Compile and deploy a filtered select on the named window for live listener subscriptions.
+     *
+     * Uses "select irstream *" so the listener receives ALL window changes:
+     *   - Direct inserts (insert into Orders select * from OrdersEvent)
+     *   - On-merge upserts: updated row arrives as newEvent, old row as oldEvent
+     *   - On-delete:        deleted row arrives as oldEvent only
+     *
+     * Without irstream, "select *" only sees the insert stream and misses on-merge / on-delete.
      */
     public EPStatement createFilteredStatement(String windowName, String whereClause) {
-        String epl = "select * from " + windowName;
+        String epl = "select irstream * from " + windowName;
         if (whereClause != null && !whereClause.isBlank()) {
             epl += " where " + whereClause;
         }

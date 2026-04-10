@@ -265,6 +265,9 @@
         document.getElementById('lastSeq').textContent = msg.seq;
 
         switch (msg.type) {
+            case 'subscribed':
+                currentSubscriptionId = msg.subscriptionId;
+                break;
             case 'snapshot':
                 if (gridApi && msg.data) {
                     gridApi.applyTransaction({ add: [msg.data] });

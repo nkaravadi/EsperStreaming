@@ -6,11 +6,14 @@ import com.espertech.esper.compiler.client.EPCompilerProvider;
 import com.espertech.esper.runtime.client.EPDeployment;
 import com.espertech.esper.runtime.client.EPRuntime;
 import com.espertech.esper.runtime.client.EPRuntimeProvider;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.stereotype.Component;
 
 @Component
 public class EsperConfig {
+    private static final Logger log = LoggerFactory.getLogger(EsperConfig.class);
 
     private final Configuration configuration;
     private final EPRuntime runtime;
@@ -36,6 +39,8 @@ public class EsperConfig {
             var compiler = EPCompilerProvider.getCompiler();
             var args = new CompilerArguments(runtime.getConfigurationDeepCopy());
             args.getPath().add(runtime.getRuntimePath());
+            log.debug("Compiling EPL (deployments in path: {}): {}",
+                    runtime.getDeploymentService().getDeployments().length, epl);
             var compiled = compiler.compile(epl, args);
             return runtime.getDeploymentService().deploy(compiled);
         } catch (Exception e) {

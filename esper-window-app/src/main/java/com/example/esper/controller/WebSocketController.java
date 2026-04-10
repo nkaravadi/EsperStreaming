@@ -7,6 +7,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
+import org.springframework.messaging.simp.SimpMessageType;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 
@@ -17,9 +19,12 @@ public class WebSocketController {
     private static final Logger log = LoggerFactory.getLogger(WebSocketController.class);
 
     private final SubscriptionManager subscriptionManager;
+    private final SimpMessagingTemplate messagingTemplate;
 
-    public WebSocketController(SubscriptionManager subscriptionManager) {
+    public WebSocketController(SubscriptionManager subscriptionManager,
+                               SimpMessagingTemplate messagingTemplate) {
         this.subscriptionManager = subscriptionManager;
+        this.messagingTemplate = messagingTemplate;
     }
 
     @MessageMapping("/subscribe")
@@ -31,8 +36,17 @@ public class WebSocketController {
         String subscriptionId = subscriptionManager.subscribe(
                 sessionId, request.getWindowName(), request.getWhere());
 
-        // Send back the subscription ID
-        headerAccessor.getSessionAttributes();
+        // Send the subscription ID back so the client can unsubscribe later.
+        // Use explicit sessionId in headers — convertAndSendToUser() resolves by principal
+        // name by default, which doesn't work without Spring Security.
+        SimpMessageHeaderAccessor ha = SimpMessageHeaderAccessor.create(SimpMessageType.MESSAGE);
+        ha.setSessionId(sessionId);
+        ha.setLeaveMutable(true);
+        messagingTemplate.convertAndSendToUser(
+                sessionId,
+                "/queue/data",
+                Map.of("type", "subscribed", "subscriptionId", subscriptionId),
+                ha.getMessageHeaders());
     }
 
     @MessageMapping("/unsubscribe")
